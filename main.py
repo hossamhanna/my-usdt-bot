@@ -7,7 +7,7 @@ from firebase_admin import credentials, db
 # --- الإعدادات (ضع التوكن الخاص بك هنا) ---
 API_TOKEN = '8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8'
 # رابط صفحة الحماية التي سنرفعها على GitHub Pages
-WEB_APP_URL = "https://hossamhanna.github.io/my-sdt-bot/" 
+WEB_APP_URL = "https://hossamhanna.github.io/my-usdt-bot/" 
 
 CHANNELS = ["@VaultoUSDT", "@CryptoEarnList", "@CryptoProfitHub15", "@E_G_58"]
 
