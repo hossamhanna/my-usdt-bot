@@ -3,83 +3,105 @@ from telebot import types
 from telebot.types import WebAppInfo
 import firebase_admin
 from firebase_admin import credentials, db
+from flask import Flask
+from threading import Thread
 import os
 
-# --- الإعدادات ---
+# ================= الإعدادات الشخصية =================
 API_TOKEN = '8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8'
-ADMIN_ID = 1683002116 
+ADMIN_ID = 1683002116
 DB_URL = 'https://novaton-bot-default-rtdb.firebaseio.com'
 WEB_APP_URL = "https://hossamhanna.github.io/my-usdt-bot/"
-# رابط الصورة الجديد الذي أرسلته
 BOT_LOGO_URL = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg"
 
-# تهيئة Firebase مع معالجة الأخطاء لضمان عدم توقف البوت
+# قائمة القنوات (يجب أن يكون البوت آدمن في هذه القنوات)
+# ضع يوزر القناة يبدأ بـ @
+REQUIRED_CHANNELS = ["@YourChannel1", "@YourChannel2"] 
+# ===================================================
+
+app = Flask('')
+@app.route('/')
+def home(): return "Bot status: Active"
+def run(): app.run(host='0.0.0.0', port=8080)
+def keep_alive():
+    t = Thread(target=run)
+    t.daemon = True
+    t.start()
+
 if not firebase_admin._apps:
     try:
-        # التأكد من وجود الملف قبل محاولة تحميله
-        if os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
-            print("✅ Firebase connected successfully")
-        else:
-            print("❌ Error: serviceAccountKey.json not found!")
-    except Exception as e:
-        print(f"❌ Firebase Initialization Error: {e}")
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+    except Exception as e: print(f"Firebase Error: {e}")
 
 bot = telebot.TeleBot(API_TOKEN)
 
 # --- القوائم ---
-def get_main_menu():
+def main_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add("👤 Profile & Balance", "🔗 Referral Hub")
     markup.add("🎡 Bonus Spin", "📈 Statistics")
     markup.add("🎯 Missions & Tasks", "🎧 Support")
     return markup
 
-# --- الأوامر ---
+# --- دالة فحص الاشتراك الإجباري ---
+def check_subscriptions(user_id):
+    not_joined = []
+    for channel in REQUIRED_CHANNELS:
+        try:
+            member = bot.get_chat_member(channel, user_id)
+            if member.status in ['left', 'kicked']:
+                not_joined.append(channel)
+        except Exception:
+            # إذا لم يستطع البوت الوصول للقناة (تأكد أنه آدمن فيها)
+            not_joined.append(channel)
+    return not_joined
+
+# --- أوامر البوت ---
 @bot.message_handler(commands=['start'])
-def start_handler(message):
+def start(message):
     user_id = str(message.chat.id)
-    
-    # محاولة تسجيل المستخدم في Firebase دون أن يتسبب فشلها في توقف البوت
-    try:
-        user_ref = db.reference(f'users/{user_id}')
-        if not user_ref.get():
-            user_ref.set({'balance': 0.0, 'referrals': 0})
-    except Exception as e:
-        print(f"Database error during start: {e}")
+    if not db.reference(f'users/{user_id}').get():
+        db.reference(f'users/{user_id}').set({'balance': 0.0, 'referrals': 0})
 
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("📢 Join Channel", url="https://t.me/YourChannel"),
-        types.InlineKeyboardButton("✅ I Have Joined", callback_data="check_join")
-    )
+    for ch in REQUIRED_CHANNELS:
+        markup.add(types.InlineKeyboardButton(f"📢 Join {ch}", url=f"https://t.me/{ch.replace('@', '')}"))
     
-    caption = "👋 **Welcome!**\n\n🏆 Join our channel to start earning USDT easily."
+    markup.add(types.InlineKeyboardButton("✅ Done / Check", callback_data="verify_subs"))
+    
+    caption = "👋 **Welcome!**\n\n🏆 You must join our channels to start.\n🤝 Click 'Done' after joining all channels."
     try:
         bot.send_photo(message.chat.id, BOT_LOGO_URL, caption=caption, parse_mode="Markdown", reply_markup=markup)
-    except Exception:
-        # إذا فشلت الصورة لأي سبب، أرسل نصاً فقط
+    except:
         bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_join")
-def check_join(call):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🛡️ Verify Device", web_app=WebAppInfo(url=WEB_APP_URL)))
-    bot.send_message(call.message.chat.id, "✅ Verified! Now verify your device to unlock withdrawal:", reply_markup=markup)
-    bot.send_message(call.message.chat.id, "🏠 Main Menu:", reply_markup=get_main_menu())
+@bot.callback_query_handler(func=lambda call: call.data == "verify_subs")
+def verify_subs(call):
+    user_id = call.from_user.id
+    missing_channels = check_subscriptions(user_id)
+    
+    if not missing_channels:
+        # إذا اشترك في كل شيء -> يظهر نظام التحقق
+        bot.answer_callback_query(call.id, "✅ Done! You joined all channels.")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🛡️ Verify Device", web_app=WebAppInfo(url=WEB_APP_URL)))
+        
+        bot.send_message(call.message.chat.id, "🎯 Great! Now verify your device to unlock the bot:", reply_markup=markup)
+        # ملاحظة: القائمة تظهر بعد أن يقوم بالتحقق أو يمكنك إظهارها هنا مباشرة
+        bot.send_message(call.message.chat.id, "Main Menu Unlocked:", reply_markup=main_menu())
+    else:
+        # إذا نسي قناة -> يخبره بها
+        channels_text = "\n".join(missing_channels)
+        bot.answer_callback_query(call.id, f"⚠️ You missed: {channels_text}", show_alert=True)
+        bot.send_message(call.message.chat.id, f"❌ You haven't joined these channels yet:\n{channels_text}\n\nPlease join and click 'Done' again.")
 
 @bot.message_handler(func=lambda m: m.text == "👤 Profile & Balance")
-def profile_handler(message):
-    user_id = str(message.chat.id)
-    try:
-        data = db.reference(f'users/{user_id}').get() or {'balance': 0.0, 'referrals': 0}
-        balance = data.get('balance', 0.0)
-    except:
-        balance = "Error loading"
-    
-    bot.send_message(message.chat.id, f"👤 **Profile Details**\n\n💰 Balance: {balance} USDT", parse_mode="Markdown")
+def profile(message):
+    data = db.reference(f'users/{message.chat.id}').get() or {'balance': 0.0}
+    bot.send_message(message.chat.id, f"💰 Your Balance: {data['balance']} USDT")
 
 if __name__ == "__main__":
-    print("🚀 Bot starting...")
+    keep_alive()
     bot.polling(none_stop=True)
