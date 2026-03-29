@@ -1,70 +1,113 @@
-<!DOCTYPE html>
-<html lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <title>نظام التحقق من الأمان</title>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-</head>
-<body>
-    <div id="status">جاري فحص الجهاز والشبكة...</div>
+const { Telegraf, Markup } = require('telegraf');
+const admin = require('firebase-admin');
+const express = require('express');
 
-    <script>
-        // 1. إعدادات Firebase (يجب نسخها من لوحة تحكم Firebase الخاصة بك)
-        const firebaseConfig = {
-            apiKey: "AIzaSy...", 
-            authDomain: "novaton-bot.firebaseapp.com",
-            databaseURL: "https://novaton-bot-default-rtdb.firebaseio.com",
-            projectId: "novaton-bot",
-            storageBucket: "novaton-bot.appspot.com",
-            messagingSenderId: "...",
-            appId: "..."
-        };
-        firebase.initializeApp(firebaseConfig);
+// --- ⚙️ الإعدادات الأساسية ---
+const bot = new Telegraf('8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8');
+const ADMIN_ID = 1683002116;
+const LOGO_URL = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg";
+const CHANNELS = ["@VaultoUSDT", "@E_G_58"];
 
-        // 2. جلب معرف المستخدم من الرابط
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('tgWebAppStartParam');
+// --- 🔥 تهيئة Firebase ---
+const serviceAccount = require("./serviceAccountKey.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://novaton-bot-default-rtdb.firebaseio.com"
+});
+const db = admin.database();
 
-        async function verify() {
-            const statusDiv = document.getElementById("status");
-            
-            try {
-                // فحص الـ IP وكشف الـ VPN/Proxy
-                const response = await fetch('https://ipapi.co/json/');
-                const data = await response.json();
+// --- 🌐 سيرفر Express لإرضاء Render (حل مشكلة التوقف) ---
+const app = express();
+app.get('/', (req, res) => res.send('Bot is Running! ✅'));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-                if (data.security && (data.security.vpn || data.security.proxy)) {
-                    statusDiv.innerText = "❌ عذراً، استخدام VPN غير مسموح به!";
-                    return;
-                }
+// --- 🛡️ نظام الحماية القوي (Security Middleware) ---
+bot.use(async (ctx, next) => {
+  if (!ctx.from) return;
+  
+  const username = ctx.from.username;
+  // حماية 1: منع الحسابات بدون اسم مستخدم (Anti-Clone)
+  if (!username) {
+    return ctx.reply("⚠️ حماية: يجب تعيين اسم مستخدم (Username) لحسابك أولاً لاستخدام البوت.");
+  }
+  return next();
+});
 
-                const userIp = data.ip;
+// --- 📢 دالة فحص الاشتراك الإجباري ---
+async function isSubscribed(ctx) {
+  if (ctx.from.id === ADMIN_ID) return true;
+  for (const ch of CHANNELS) {
+    try {
+      const member = await ctx.telegram.getChatMember(ch, ctx.from.id);
+      if (['left', 'kicked'].includes(member.status)) return false;
+    } catch (e) { continue; }
+  }
+  return true;
+}
 
-                // منع التعدد: التأكد أن الـ IP غير مسجل لحساب آخر
-                const ipRef = firebase.database().ref('used_ips/' + userIp.replace(/\./g, '_'));
-                const snapshot = await ipRef.once('value');
+// --- 🤖 أوامر البوت ---
+bot.start(async (ctx) => {
+  const userId = ctx.from.id;
+  
+  // تسجيل المستخدم في Firebase
+  const userRef = db.ref(`users/${userId}`);
+  const snapshot = await userRef.once('value');
+  if (!snapshot.exists()) {
+    await userRef.set({
+      balance: 0.0,
+      referrals: 0,
+      username: ctx.from.username,
+      joinedAt: new Date().toISOString()
+    });
+  }
 
-                if (snapshot.exists() && snapshot.val() !== userId) {
-                    statusDiv.innerText = "❌ هذا الجهاز أو الشبكة مسجلة مسبقاً بحساب آخر!";
-                } else {
-                    // تحديث حالة المستخدم في قاعدة البيانات لفتح البوت
-                    await firebase.database().ref('users/' + userId).update({
-                        is_verified: true,
-                        ip: userIp
-                    });
-                    // حجز الـ IP لهذا المستخدم
-                    await ipRef.set(userId);
+  // فحص الاشتراك
+  if (!(await isSubscribed(ctx))) {
+    const buttons = CHANNELS.map(ch => Markup.button.url(`📢 اشترك في ${ch}`, `https://t.me/${ch.slice(1)}`));
+    buttons.push(Markup.button.callback("✅ تم الاشتراك", "check_sub"));
+    
+    return ctx.replyWithPhoto(LOGO_URL, {
+      caption: "👋 **أهلاً بك!**\n\nيجب عليك الانضمام لقنواتنا أولاً لتفعيل نظام الربح الخاص بك.",
+      ...Markup.inlineKeyboard(buttons, { columns: 1 })
+    });
+  }
 
-                    statusDiv.innerText = "✅ تم التحقق بنجاح! يمكنك العودة للبوت الآن واستخدام الأزرار.";
-                }
-            } catch (error) {
-                statusDiv.innerText = "❌ حدث خطأ أثناء الفحص، يرجى المحاولة لاحقاً.";
-            }
-        }
+  // لوحة المستخدم أو الإدارة
+  const menu = Markup.keyboard([
+    ["👤 حسابي", "🔗 رابط الإحالة"],
+    ["🎡 عجلة الحظ", "🎯 المهام"],
+    ["📊 إحصائيات", "🎧 الدعم"]
+  ]).resize();
 
-        if (userId) verify();
-        else document.getElementById("status").innerText = "⚠️ يرجى فتح الرابط من داخل البوت الرسمي.";
-    </script>
-</body>
-</html>
+  if (userId === ADMIN_ID) {
+    ctx.replyWithPhoto(LOGO_URL, {
+      caption: "💻 **لوحة الإدارة مفتوحة الآن**\nنظام الحماية: فعال ✅",
+      ...Markup.keyboard([["📊 إحصائيات البوت", "🏠 وضع المستخدم"]]).resize()
+    });
+  } else {
+    ctx.replyWithPhoto(LOGO_URL, {
+      caption: "مرحباً بك في Earn Master Bot! 👋\nابدأ بجمع USDT الآن.",
+      ...menu
+    });
+  }
+});
+
+// --- 🛠️ معالجة النصوص ---
+bot.hears("👤 حسابي", async (ctx) => {
+  const snapshot = await db.ref(`users/${ctx.from.id}`).once('value');
+  const data = snapshot.val() || { balance: 0 };
+  ctx.reply(`💰 **رصيدك الحالي:** ${data.balance} USDT`);
+});
+
+bot.hears("🔗 رابط الإحالة", (ctx) => {
+  ctx.reply(`🔗 **رابط الإحالة الخاص بك:**\nhttps://t.me/EarnMasterBot?start=${ctx.from.id}`);
+});
+
+// --- 🔄 تشغيل البوت ---
+bot.launch();
+console.log("🚀 JS Bot is Online with Protection...");
+
+// إيقاف آمن
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
