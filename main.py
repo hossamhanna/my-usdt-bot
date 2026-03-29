@@ -4,12 +4,13 @@ from telebot.types import WebAppInfo
 import firebase_admin
 from firebase_admin import credentials, db
 
-# --- الإعدادات ---
+# --- الإعدادات (تأكد من صحتها) ---
 API_TOKEN = '8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8'
-ADMIN_ID = 1683002116  # الآيدي الخاص بك
+ADMIN_ID = 1683002116 
 DB_URL = 'https://novaton-bot-default-rtdb.firebaseio.com'
 WEB_APP_URL = "https://hossamhanna.github.io/my-usdt-bot/"
-BOT_LOGO_URL = "https://i.ibb.co/LzNfDqL/logo.jpg" # رابط صورتك
+# ضع هنا رابط لوجو حقيقي (ينتهي بـ .jpg أو .png)
+BOT_LOGO_URL = "https://i.ibb.co/LzNfDqL/logo.jpg" 
 
 # تهيئة Firebase
 if not firebase_admin._apps:
@@ -18,82 +19,76 @@ if not firebase_admin._apps:
 
 bot = telebot.TeleBot(API_TOKEN)
 
-# --- لوحات المفاتيح (مثل الصور) ---
-def main_menu():
+# --- الدوال المساعدة (القوائم) ---
+def get_main_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add("👤 Profile & Balance", "🔗 Referral Hub")
     markup.add("🎡 Bonus Spin", "📈 Statistics")
     markup.add("🎯 Missions & Tasks", "🎧 Support")
     return markup
 
-def admin_menu():
+def get_admin_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add("📊 Total Users", "💰 Edit Balance")
     markup.add("📢 Broadcast", "🏠 Back to User Menu")
     return markup
 
-# --- أوامر الآدمن ---
+# --- أوامر الإدارة ---
 @bot.message_handler(commands=['admin'])
-def admin_panel(message):
+def admin_handler(message):
     if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, "Welcome BOSS! Admin Panel:", reply_markup=admin_menu())
+        bot.send_message(message.chat.id, "🛠 Welcome BOSS! Admin Panel active.", reply_markup=get_admin_menu())
 
 @bot.message_handler(func=lambda m: m.text == "📊 Total Users")
-def total_users(message):
+def count_handler(message):
     if message.from_user.id == ADMIN_ID:
         users = db.reference('users').get()
         count = len(users) if users else 0
-        bot.send_message(message.chat.id, f"Total Registered Users: {count}")
+        bot.send_message(message.chat.id, f"👥 Total Users: {count}")
 
-@bot.message_handler(func=lambda m: m.text == "💰 Edit Balance")
-def edit_balance_start(message):
-    if message.from_user.id == ADMIN_ID:
-        msg = bot.send_message(message.chat.id, "Send ID:Amount (e.g., 1683002116:10):")
-        bot.register_next_step_handler(msg, process_balance)
-
-def process_balance(message):
-    try:
-        user_id, amount = message.text.split(':')
-        db.reference(f'users/{user_id}').update({'balance': float(amount)})
-        bot.send_message(message.chat.id, "✅ Done! Balance updated.")
-    except:
-        bot.send_message(message.chat.id, "❌ Error! Use format ID:Amount")
-
-# --- أوامر المستخدم (Start & Menu) ---
+# --- أوامر المستخدم الأساسية ---
 @bot.message_handler(commands=['start'])
-def start(message):
+def start_handler(message):
     user_id = str(message.chat.id)
-    # تسجيل المستخدم
+    
+    # حفظ المستخدم في القاعدة
     if not db.reference(f'users/{user_id}').get():
         db.reference(f'users/{user_id}').set({'balance': 0.0, 'referrals': 0})
 
-    # رسالة الاشتراك الإجباري
+    # أزرار الاشتراك الإجباري
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton("📢 Join Channel", url="https://t.me/YourChannel"))
-    markup.add(types.InlineKeyboardButton("✅ Done / Check", callback_data="verify_done"))
+    markup.add(
+        types.InlineKeyboardButton("📢 Join Our Channel", url="https://t.me/YourChannelLink"),
+        types.InlineKeyboardButton("✅ Done / Check", callback_data="check_and_verify")
+    )
     
-    caption = "👋 **Welcome!**\n\n🏆 Join our channel first to start earning.\n🤝 Then click 'Done' below."
+    caption_text = "👋 **Welcome to Novaton Bot!**\n\n🏆 Join the channel above to start earning.\n🤝 Click 'Done' after joining."
+    
     try:
-        bot.send_photo(message.chat.id, BOT_LOGO_URL, caption=caption, parse_mode="Markdown", reply_markup=markup)
+        bot.send_photo(message.chat.id, BOT_LOGO_URL, caption=caption_text, parse_mode="Markdown", reply_markup=markup)
     except:
-        bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(message.chat.id, caption_text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "verify_done")
-def verify_done(call):
+@bot.callback_query_handler(func=lambda call: call.data == "check_and_verify")
+def verify_handler(call):
+    # إرسال زر نظام التحقق (Web App)
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🛡️ Device Verification", web_app=WebAppInfo(url=WEB_APP_URL)))
-    bot.send_message(call.message.chat.id, "✅ Channels Joined! Now verify device:", reply_markup=markup)
-    bot.send_message(call.message.chat.id, "Main Menu Unlocked:", reply_markup=main_menu())
+    
+    bot.send_message(call.message.chat.id, "✅ Channels Verified! Now verify your device to unlock withdrawal.", reply_markup=markup)
+    bot.send_message(call.message.chat.id, "🏠 Main Menu unlocked:", reply_markup=get_main_menu())
 
+# --- أزرار القائمة الرئيسية ---
 @bot.message_handler(func=lambda m: m.text == "👤 Profile & Balance")
-def profile(message):
-    data = db.reference(f'users/{message.chat.id}').get() or {'balance': 0.0}
-    bot.send_message(message.chat.id, f"👤 **Profile**\n\n💰 Balance: {data['balance']} USDT")
+def profile_handler(message):
+    user_data = db.reference(f'users/{message.chat.id}').get() or {'balance': 0.0}
+    bot.send_message(message.chat.id, f"👤 **Profile**\n\n💰 Balance: {user_data['balance']} USDT")
 
 @bot.message_handler(func=lambda m: m.text == "🏠 Back to User Menu")
-def back_home(message):
-    bot.send_message(message.chat.id, "Returning...", reply_markup=main_menu())
+def back_handler(message):
+    bot.send_message(message.chat.id, "Switching...", reply_markup=get_main_menu())
 
+# تشغيل البوت
 if __name__ == "__main__":
-    print("Bot is running perfectly...")
+    print("Bot is starting...")
     bot.polling(none_stop=True)
