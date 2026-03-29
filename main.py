@@ -7,39 +7,37 @@ from flask import Flask
 from threading import Thread
 import os
 
-# --- الإعدادات ---
+# --- الإعدادات الشخصية ---
 API_TOKEN = '8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8'
 ADMIN_ID = 1683002116
 DB_URL = 'https://novaton-bot-default-rtdb.firebaseio.com'
 WEB_APP_URL = "https://hossamhanna.github.io/my-usdt-bot/"
 BOT_LOGO_URL = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg"
 
-# القنوات المطلوبة (تأكد أن البوت آدمن فيها)
-REQUIRED_CHANNELS = ["@YourChannel1"] 
+# القنوات التي طلبتها
+REQUIRED_CHANNELS = ["@VaultoUSDT", "@E_G_58"] 
+# -------------------------
 
-# --- سيرفر Flask (لإبقاء البوت حياً) ---
+# نظام إبقاء البوت حياً (Flask)
 app = Flask('')
 @app.route('/')
-def home(): return "Bot is Running!"
+def home(): return "Bot is Online!"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive():
-    Thread(target=run, daemon=True).start()
+    t = Thread(target=run)
+    t.daemon = True
+    t.start()
 
-# --- اتصال Firebase ---
-try:
-    if not firebase_admin._apps:
-        if os.path.exists("serviceAccountKey.json"):
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
-            print("✅ Firebase Connected")
-        else:
-            print("❌ File serviceAccountKey.json missing!")
-except Exception as e:
-    print(f"❌ Firebase Error: {e}")
+# اتصال Firebase
+if not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred, {'databaseURL': DB_URL})
+    except: pass
 
 bot = telebot.TeleBot(API_TOKEN)
 
-# --- القوائم ---
+# دالة القائمة الرئيسية
 def main_menu():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add("👤 Profile & Balance", "🔗 Referral Hub")
@@ -47,43 +45,59 @@ def main_menu():
     markup.add("🎯 Missions & Tasks", "🎧 Support")
     return markup
 
-# --- فحص الاشتراك ---
-def is_subscribed(user_id):
+# دالة التحقق من القنوات
+def check_join(user_id):
+    missing = []
     for ch in REQUIRED_CHANNELS:
         try:
             status = bot.get_chat_member(ch, user_id).status
-            if status in ['left', 'kicked']: return False
-        except: return False
-    return True
+            if status in ['left', 'kicked']:
+                missing.append(ch)
+        except:
+            missing.append(ch)
+    return missing
 
-# --- الأوامر ---
 @bot.message_handler(commands=['start'])
 def start(message):
-    print(f"📩 New Start from: {message.chat.id}") # ستظهر في الـ Logs عند الضغط
     user_id = str(message.chat.id)
-    
+    # تسجيل في القاعدة
+    try:
+        if not db.reference(f'users/{user_id}').get():
+            db.reference(f'users/{user_id}').set({'balance': 0.0, 'referrals': 0})
+    except: pass
+
     markup = types.InlineKeyboardMarkup(row_width=1)
     for ch in REQUIRED_CHANNELS:
-        markup.add(types.InlineKeyboardButton(f"📢 Join {ch}", url=f"https://t.me/{ch.strip('@')}"))
-    markup.add(types.InlineKeyboardButton("✅ Done / Check", callback_data="check"))
+        markup.add(types.InlineKeyboardButton(f"➕ Join Channel {ch}", url=f"https://t.me/{ch.strip('@')}"))
+    markup.add(types.InlineKeyboardButton("✅ I Have Joined / Done", callback_data="verify_now"))
     
-    caption = "👋 **Welcome!**\n\n🏆 You must join our channel first to start earning."
+    # رسالة الترحيب مثل الصورة
+    welcome_text = (
+        "👋 **Welcome to Vaulto USDT Bot!**\n\n"
+        "🏆 **Start earning USDT by completing simple tasks.**\n\n"
+        "⚠️ **Note:** You must join our official channels to unlock the bot features and withdrawals."
+    )
+    
     try:
-        bot.send_photo(message.chat.id, BOT_LOGO_URL, caption=caption, parse_mode="Markdown", reply_markup=markup)
+        bot.send_photo(message.chat.id, BOT_LOGO_URL, caption=welcome_text, parse_mode="Markdown", reply_markup=markup)
     except:
-        bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data == "check")
-def check(call):
-    if is_subscribed(call.from_user.id):
+@bot.callback_query_handler(func=lambda call: call.data == "verify_now")
+def verify(call):
+    missing = check_join(call.from_user.id)
+    if not missing:
+        # إذا اشترك في الكل
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🛡️ Verify Device", web_app=WebAppInfo(url=WEB_APP_URL)))
-        bot.send_message(call.message.chat.id, "✅ Verified! Now complete device check:", reply_markup=markup)
-        bot.send_message(call.message.chat.id, "🏠 Menu Unlocked:", reply_markup=main_menu())
+        markup.add(types.InlineKeyboardButton("🛡️ Device Verification", web_app=WebAppInfo(url=WEB_APP_URL)))
+        
+        bot.send_message(call.message.chat.id, "✅ **Verification Successful!**\n\nNow please complete the final device security check to start earning:", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "🏠 **Main Menu Unlocked**", reply_markup=main_menu())
     else:
-        bot.answer_callback_query(call.id, "⚠️ Please join all channels first!", show_alert=True)
+        # إذا نسي قنوات
+        list_ch = "\n".join(missing)
+        bot.answer_callback_query(call.id, f"⚠️ You didn't join: {list_ch}", show_alert=True)
 
 if __name__ == "__main__":
     keep_alive()
-    print("🚀 Bot Polling Started...")
     bot.polling(none_stop=True)
