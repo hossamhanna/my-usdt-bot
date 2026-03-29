@@ -2,26 +2,15 @@
 <html lang="ar">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vaulto Security Check</title>
+    <title>نظام التحقق من الأمان</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    <style>
-        body { font-family: sans-serif; text-align: center; background-color: #1a1a1a; color: white; padding-top: 50px; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 2s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .btn { background-color: #27ae60; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: none; }
-    </style>
 </head>
 <body>
-
-    <h2>🛡️ فحص الأمان ونظام تعدد الحسابات</h2>
-    <div id="status-icon" class="loader"></div>
-    <p id="status-text">جاري فحص اتصالك وجهازك...</p>
-    <a href="https://t.me/VaultoUSDT_bot" id="back-btn" class="btn">العودة للبوت</a>
+    <div id="status">جاري فحص الجهاز والشبكة...</div>
 
     <script>
-        // 1. إعدادات Firebase الخاصة بك (احصل عليها من Firebase Console)
+        // 1. إعدادات Firebase (يجب نسخها من لوحة تحكم Firebase الخاصة بك)
         const firebaseConfig = {
             apiKey: "AIzaSy...", 
             authDomain: "novaton-bot.firebaseapp.com",
@@ -33,63 +22,49 @@
         };
         firebase.initializeApp(firebaseConfig);
 
-        // 2. الحصول على ID المستخدم من الرابط (البوت يرسله تلقائياً)
+        // 2. جلب معرف المستخدم من الرابط
         const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('tgWebAppStartParam') || "unknown"; 
+        const userId = urlParams.get('tgWebAppStartParam');
 
-        async function startVerification() {
-            const statusText = document.getElementById("status-text");
-            const loader = document.getElementById("status-icon");
-
+        async function verify() {
+            const statusDiv = document.getElementById("status");
+            
             try {
-                // فحص الـ IP والـ VPN عبر API خارجي
+                // فحص الـ IP وكشف الـ VPN/Proxy
                 const response = await fetch('https://ipapi.co/json/');
                 const data = await response.json();
 
-                // كشف الـ VPN والـ Proxy
-                if (data.org.toLowerCase().includes("vpn") || data.org.toLowerCase().includes("hosting")) {
-                    statusText.innerText = "❌ عذراً، استخدام VPN غير مسموح به!";
-                    loader.style.display = "none";
+                if (data.security && (data.security.vpn || data.security.proxy)) {
+                    statusDiv.innerText = "❌ عذراً، استخدام VPN غير مسموح به!";
                     return;
                 }
 
                 const userIp = data.ip;
 
-                // منع التعدد: فحص إذا كان الـ IP مستخدم من قبل
-                const usedIpRef = firebase.database().ref('used_ips/' + userIp.replace(/\./g, '_'));
-                const snapshot = await usedIpRef.once('value');
+                // منع التعدد: التأكد أن الـ IP غير مسجل لحساب آخر
+                const ipRef = firebase.database().ref('used_ips/' + userIp.replace(/\./g, '_'));
+                const snapshot = await ipRef.once('value');
 
                 if (snapshot.exists() && snapshot.val() !== userId) {
-                    statusText.innerText = "❌ هذا الجهاز/الشبكة مسجلة بحساب آخر!";
-                    loader.style.display = "none";
+                    statusDiv.innerText = "❌ هذا الجهاز أو الشبكة مسجلة مسبقاً بحساب آخر!";
                 } else {
-                    // نجاح التحقق: تحديث Firebase
+                    // تحديث حالة المستخدم في قاعدة البيانات لفتح البوت
                     await firebase.database().ref('users/' + userId).update({
                         is_verified: true,
-                        ip: userIp,
-                        last_check: new Date().toISOString()
+                        ip: userIp
                     });
-                    
-                    // تسجيل الـ IP لضمان عدم استخدامه مرة أخرى
-                    await usedIpRef.set(userId);
+                    // حجز الـ IP لهذا المستخدم
+                    await ipRef.set(userId);
 
-                    statusText.innerText = "✅ تم التحقق بنجاح! يمكنك العودة للبوت الآن.";
-                    loader.style.display = "none";
-                    document.getElementById("back-btn").style.display = "inline-block";
+                    statusDiv.innerText = "✅ تم التحقق بنجاح! يمكنك العودة للبوت الآن واستخدام الأزرار.";
                 }
-
             } catch (error) {
-                statusText.innerText = "❌ حدث خطأ في الاتصال، حاول مجدداً.";
-                console.error(error);
+                statusDiv.innerText = "❌ حدث خطأ أثناء الفحص، يرجى المحاولة لاحقاً.";
             }
         }
 
-        // بدء الفحص عند تحميل الصفحة
-        if (userId !== "unknown") {
-            startVerification();
-        } else {
-            document.getElementById("status-text").innerText = "⚠️ يرجى الدخول للموقع من خلال البوت الرسمي فقط.";
-        }
+        if (userId) verify();
+        else document.getElementById("status").innerText = "⚠️ يرجى فتح الرابط من داخل البوت الرسمي.";
     </script>
 </body>
 </html>
