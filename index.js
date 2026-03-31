@@ -9,10 +9,10 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // سيرفر الويب لـ Render
 const app = express();
-app.get('/', (req, res) => res.send('Bot is Running ✅'));
+app.get('/', (req, res) => res.send('Bot Status: Online ✅'));
 app.listen(process.env.PORT || 10000, '0.0.0.0');
 
-// --- ربط Firebase ---
+// --- ربط Firebase مع معالجة الأخطاء لضمان عدم توقف البوت ---
 let dbAvailable = false;
 const keyPath = "./serviceAccountKey.json";
 
@@ -26,85 +26,72 @@ if (fs.existsSync(keyPath)) {
             });
         }
         dbAvailable = true;
-        console.log("✅ Firebase Connected!");
-    } catch (e) { console.log("⚠️ Firebase Key Error"); }
+    } catch (e) { console.log("Firebase Init Error"); }
 }
-
 const db = admin.database();
 
 // --- وظائف مساعدة ---
 async function getChannels() {
-    const snap = await db.ref('settings/channels').once('value');
-    return snap.val() || [];
-}
-
-async function checkSub(ctx, channels) {
-    if (ctx.from.id === ADMIN_ID) return true;
-    for (const ch of channels) {
-        try {
-            const member = await ctx.telegram.getChatMember(ch, ctx.from.id);
-            if (['left', 'kicked'].includes(member.status)) return false;
-        } catch { return false; }
-    }
-    return true;
+    if (!dbAvailable) return [];
+    try {
+        const snap = await db.ref('settings/channels').once('value');
+        return snap.val() || [];
+    } catch (e) { return []; }
 }
 
 // --- أوامر البوت ---
 bot.start(async (ctx) => {
-    const userId = ctx.from.id;
-    const channels = await getChannels();
-    
-    // 1. التحقق من الاشتراك الإجباري
-    const isSub = await checkSub(ctx, channels);
-    if (!isSub && channels.length > 0) {
-        const buttons = channels.map(ch => [Markup.button.url(`📢 انضم: ${ch}`, `https://t.me/${ch.replace('@','')}`)]);
-        buttons.push([Markup.button.callback("✅ تم الاشتراك، ابدأ الآن", "verify")]);
-        return ctx.reply("⚠️ يجب عليك الاشتراك في القنوات أولاً للمتابعة:", Markup.inlineKeyboard(buttons));
-    }
-
-    // 2. تسجيل المستخدم ونظام الإحالة
-    const userRef = db.ref(`users/${userId}`);
-    const snap = await userRef.once('value');
-    if (!snap.exists()) {
-        const refId = ctx.startPayload;
-        await userRef.set({ id: userId, points: 0, name: ctx.from.first_name });
-        if (refId && refId != userId) {
-            await db.ref(`users/${refId}/points`).transaction(p => (p || 0) + 0.03);
-            bot.telegram.sendMessage(refId, "🎁 حصلت على 0.03 USDT من إحالة جديدة!").catch(()=>{});
+    try {
+        const userId = ctx.from.id;
+        
+        // تسجيل المستخدم (بشكل صامت لعدم تعطيل الرد)
+        if (dbAvailable) {
+            db.ref(`users/${userId}`).update({
+                name: ctx.from.first_name,
+                last_start: Date.now()
+            }).catch(() => {});
         }
-    }
 
-    const welcomeMsg = `🚀 أهلاً بك يا ${ctx.from.first_name}!\n\nتم تشغيل البوت بنجاح.\nاستخدم القائمة بالأسفل للجمع.`;
-    
-    return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-        caption: welcomeMsg,
-        ...Markup.keyboard([
-            ["👤 حسابي", "🔗 الإحالة"],
-            ["🎯 المهام", "💰 سحب الأرباح"],
-            ["⚙️ الإدارة"]
-        ]).resize()
-    });
+        const channels = await getChannels();
+        
+        // إرسال رسالة الترحيب فوراً (هذا يضمن أن البوت سيتحرك)
+        const welcomePhoto = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg";
+        const msg = `🚀 أهلاً بك يا ${ctx.from.first_name} في USDT Master!\n\nالبوت جاهز للعمل. استخدم القائمة أدناه:`;
+
+        return ctx.replyWithPhoto(welcomePhoto, {
+            caption: msg,
+            ...Markup.keyboard([
+                ["👤 حسابي", "🔗 الإحالة"],
+                ["🎯 المهام", "💰 سحب الأرباح"],
+                ["⚙️ الإدارة"]
+            ]).resize()
+        });
+    } catch (err) {
+        console.error("Start Error:", err);
+    }
 });
 
 // --- الأزرار ---
 bot.hears("👤 حسابي", async (ctx) => {
+    if (!dbAvailable) return ctx.reply("⚠️ قاعدة البيانات غير متصلة حالياً.");
     const snap = await db.ref(`users/${ctx.from.id}`).once('value');
     const user = snap.val() || { points: 0 };
-    ctx.reply(`💰 رصيدك: ${parseFloat(user.points).toFixed(3)} USDT`);
+    ctx.reply(`💰 رصيدك الحالي: ${parseFloat(user.points || 0).toFixed(3)} USDT`);
 });
 
 bot.hears("🔗 الإحالة", (ctx) => {
-    ctx.reply(`🔗 رابط الإحالة الخاص بك:\nhttps://t.me/${ctx.botInfo.username}?start=${ctx.from.id}\n\n🎁 مكافأة الإحالة: 0.03 USDT`);
+    const link = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
+    ctx.reply(`🎁 شارك الرابط واربح 0.03 USDT عن كل صديق:\n\n${link}`);
 });
 
 bot.hears("💰 سحب الأرباح", (ctx) => {
-    ctx.reply("⚠️ الحد الأدنى للسحب هو 5 USDT.\nعند الوصول للحد، أرسل عنوان محفظتك هنا.");
+    ctx.reply("💵 الحد الأدنى للسحب هو 5 USDT.\nعند الوصول للحد، أرسل عنوان محفظتك TRC20 هنا.");
 });
 
-// --- لوحة الإدارة (إضافة القنوات من البوت) ---
+// --- الإدارة ---
 bot.hears("⚙️ الإدارة", (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
-    ctx.reply("👑 لوحة الإدارة:\n\n1️⃣ لإضافة قناة: أرسل `اضف @يوزر` \n2️⃣ لحذف قناة: أرسل `حذف @يوزر` \n3️⃣ إذاعة: أرسل `اذاعة النص`", { parse_mode: 'Markdown' });
+    ctx.reply("👑 لوحة التحكم:\n\n- لإضافة قناة: `اضف @يوزر` \n- للإذاعة: `اذاعة النص`", { parse_mode: 'Markdown' });
 });
 
 bot.on('text', async (ctx) => {
@@ -113,33 +100,26 @@ bot.on('text', async (ctx) => {
 
     if (text.startsWith("اضف @")) {
         const ch = text.split(" ")[1];
-        let channels = await getChannels();
-        if (!channels.includes(ch)) {
-            channels.push(ch);
-            await db.ref('settings/channels').set(channels);
-            ctx.reply(`✅ تمت إضافة القناة ${ch}`);
+        if (dbAvailable) {
+            const snap = await db.ref('settings/channels').once('value');
+            let channels = snap.val() || [];
+            if (!channels.includes(ch)) {
+                channels.push(ch);
+                await db.ref('settings/channels').set(channels);
+                ctx.reply(`✅ تمت إضافة ${ch}`);
+            }
         }
     }
-
-    if (text.startsWith("حذف @")) {
-        const ch = text.split(" ")[1];
-        let channels = await getChannels();
-        channels = channels.filter(c => c !== ch);
-        await db.ref('settings/channels').set(channels);
-        ctx.reply(`🗑️ تم حذف القناة ${ch}`);
-    }
-
+    
     if (text.startsWith("اذاعة ")) {
         const msg = text.replace("اذاعة ", "");
         const snap = await db.ref('users').once('value');
         const users = snap.val();
         if (users) {
             Object.keys(users).forEach(id => bot.telegram.sendMessage(id, msg).catch(()=>{}));
-            ctx.reply("📢 تم إرسال الإذاعة للكل.");
+            ctx.reply("📢 تم الإرسال للجميع.");
         }
     }
 });
 
-bot.action("verify", (ctx) => ctx.reply("🔄 جاري التحقق... أرسل /start"));
-
-bot.launch().then(() => console.log("🚀 BOT IS LIVE AND FULLY FUNCTIONAL"));
+bot.launch().then(() => console.log("🚀 BOT DEPLOYED"));
