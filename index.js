@@ -2,17 +2,17 @@ const { Telegraf, Markup } = require('telegraf');
 const admin = require('firebase-admin');
 const express = require('express');
 
-// --- إعدادات أساسية ---
+// --- ⚙️ الإعدادات ---
 const bot = new Telegraf('8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8');
 const ADMIN_ID = 1683002116;
 const LOGO_URL = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg";
 
-// --- سيرفر الويب لـ Render ---
+// --- 🌐 سيرفر لضمان عدم توقف البوت ---
 const app = express();
-app.get('/', (req, res) => res.send('Bot is Live! ✅'));
+app.get('/', (req, res) => res.send('Active ✅'));
 app.listen(process.env.PORT || 10000, '0.0.0.0');
 
-// --- ربط Firebase ---
+// --- 🔥 تهيئة Firebase ---
 try {
     const serviceAccount = require("./serviceAccountKey.json");
     if (!admin.apps.length) {
@@ -21,17 +21,19 @@ try {
             databaseURL: "https://novaton-bot-default-rtdb.firebaseio.com"
         });
     }
-} catch (e) { console.log("Firebase Init Error"); }
+} catch (e) { console.log("Firebase Error: " + e.message); }
 
 const db = admin.database();
 
-// --- وظائف مساعدة ---
+// --- 🛡️ وظائف التحقق ---
 async function getChannels() {
-    const snap = await db.ref('settings/channels').once('value');
-    return snap.val() || [];
+    try {
+        const snap = await db.ref('settings/channels').once('value');
+        return snap.val() || [];
+    } catch (e) { return []; }
 }
 
-async function isSubscribed(ctx, channels) {
+async function checkSub(ctx, channels) {
     if (ctx.from.id === ADMIN_ID) return true;
     for (const ch of channels) {
         try {
@@ -42,29 +44,50 @@ async function isSubscribed(ctx, channels) {
     return true;
 }
 
-// --- الأوامر ---
+// --- 🤖 معالجة الأوامر ---
 bot.start(async (ctx) => {
-    const userId = ctx.from.id;
-    const channels = await getChannels();
+    try {
+        const userId = ctx.from.id;
+        const channels = await getChannels();
 
-    // فحص الاشتراك
-    if (!(await isSubscribed(ctx, channels)) && channels.length > 0) {
-        let msg = "⚠️ يرجى الاشتراك في القنوات للمتابعة:\n";
-        const buttons = channels.map(ch => [Markup.button.url(`📢 ${ch}`, `https://t.me/${ch.replace('@','')}`)]);
-        buttons.push([Markup.button.callback("✅ تحقق من الاشتراك", "check")]);
-        return ctx.reply(msg, Markup.inlineKeyboard(buttons));
+        // الرد الفوري لكسر الصمت
+        await ctx.reply("⏳ جاري التحميل...").then(m => setTimeout(() => ctx.deleteMessage(m.message_id).catch(e=>{}), 1000));
+
+        // التحقق من الاشتراك
+        const isSubscribed = await checkSub(ctx, channels);
+        if (!isSubscribed && channels.length > 0) {
+            const buttons = channels.map(ch => [Markup.button.url(`📢 انضم: ${ch}`, `https://t.me/${ch.replace('@','')}`)]);
+            buttons.push([Markup.button.callback("✅ تحقق الآن", "verify")]);
+            return ctx.replyWithPhoto(LOGO_URL, {
+                caption: "⚠️ يرجى الاشتراك في القنوات أدناه للبدء:",
+                ...Markup.inlineKeyboard(buttons)
+            });
+        }
+
+        // تسجيل المستخدم وتحديث النقاط
+        db.ref(`users/${userId}`).update({
+            name: ctx.from.first_name,
+            last_active: Date.now()
+        }).catch(e => console.log("DB Update error"));
+
+        ctx.replyWithPhoto(LOGO_URL, {
+            caption: `🚀 أهلاً بك يا ${ctx.from.first_name}!\n\nاستخدم القائمة بالأسفل لبدء الربح:`,
+            ...Markup.keyboard([
+                ["👤 حسابي", "🔗 الإحالة"],
+                ["🎯 المهام", "🎡 عجلة الحظ"],
+                ["⚙️ لوحة الإدارة"]
+            ]).resize()
+        });
+    } catch (error) {
+        console.error("Start Error: ", error);
+        ctx.reply("❌ حدث خطأ بسيط، أرسل /start مرة أخرى.");
     }
-
-    ctx.replyWithPhoto(LOGO_URL, {
-        caption: `🚀 أهلاً بك يا ${ctx.from.first_name}!\nالبوت يعمل الآن بأقصى سرعة.`,
-        ...Markup.keyboard([["👤 حسابي", "🔗 الإحالة"], ["🎡 عجلة الحظ", "🎯 المهام"]]).resize()
-    });
 });
 
-// --- لوحة التحكم (للأدمن فقط) ---
-bot.command('admin', (ctx) => {
+// لوحة التحكم للأدمن
+bot.hears("⚙️ لوحة الإدارة", (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
-    ctx.reply("👑 لوحة التحكم:\n\nلإضافة قناة: `اضف @يوزر` \nلحذف قناة: `حذف @يوزر` \nلإرسال إذاعة: `اذاعة النص`", { parse_mode: 'Markdown' });
+    ctx.reply("🛠️ أهلاً بك يا مطور:\n\n- لإضافة قناة: `اضف @يوزر` \n- لحذف قناة: `حذف @يوزر` \n- للإذاعة: `اذاعة النص`", {parse_mode: 'Markdown'});
 });
 
 bot.on('text', async (ctx) => {
@@ -79,15 +102,10 @@ bot.on('text', async (ctx) => {
             await db.ref('settings/channels').set(channels);
             ctx.reply(`✅ تمت إضافة ${ch}`);
         }
-    } else if (text.startsWith("اذاعة ")) {
-        const msg = text.replace("اذاعة ", "");
-        const users = (await db.ref('users').once('value')).val();
-        Object.keys(users || {}).forEach(id => bot.telegram.sendMessage(id, msg).catch(() => {}));
-        ctx.reply("📢 تم إرسال الإذاعة للجميع.");
     }
 });
 
-bot.action("check", (ctx) => ctx.reply("🔄 جاري التحقق... أرسل /start مجدداً."));
+bot.action("verify", (ctx) => ctx.answerCbQuery("تم! أرسل /start مجدداً."));
 
-bot.launch();
-console.log("🚀 BOT IS LIVE ON NEW PROJECT");
+bot.launch().catch(e => console.error("Launch Error: ", e));
+console.log("🚀 BOT IS ONLINE AND RESPONDING");
