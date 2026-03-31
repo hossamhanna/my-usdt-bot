@@ -9,14 +9,15 @@ const bot = new Telegraf(BOT_TOKEN);
 
 // --- سيرفر الويب لضمان عمل Render ---
 const app = express();
-app.get('/', (req, res) => res.send('Bot is Live ✅'));
+app.get('/', (req, res) => res.send('Bot is Running ✅'));
 app.listen(process.env.PORT || 10000, '0.0.0.0');
 
-// --- تهيئة Firebase الآمنة ---
+// --- إعداد Firebase الآمن ---
 let dbAvailable = false;
-try {
-    const keyPath = "./serviceAccountKey.json";
-    if (fs.existsSync(keyPath)) {
+const keyPath = "./serviceAccountKey.json";
+
+if (fs.existsSync(keyPath)) {
+    try {
         const serviceAccount = require(keyPath);
         if (!admin.apps.length) {
             admin.initializeApp({
@@ -26,103 +27,91 @@ try {
         }
         dbAvailable = true;
         console.log("✅ Firebase Connected");
-    }
-} catch (e) { console.log("⚠️ Firebase Bypass"); }
-
+    } catch (e) { console.log("⚠️ Firebase Error"); }
+}
 const db = admin.database();
 
-// --- وظائف النظام ---
-async function getSettings() {
-    if (!dbAvailable) return { channels: [] };
-    const snap = await db.ref('settings').once('value');
-    return snap.val() || { channels: [] };
-}
+// --- ميزات البوت ---
 
-// --- معالج أمر Start ---
+// 1. الرد على أمر Start فوراً
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
-    
-    // 1. الرد الفوري (لضمان أن البوت شغال أمام المستخدم)
     const welcomePhoto = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg";
     
-    await ctx.replyWithPhoto(welcomePhoto, {
-        caption: `🚀 أهلاً بك يا ${ctx.from.first_name} في بوت USDT المطور!\n\nاستخدم القائمة أدناه للبدء بالربح.`,
+    // الرد الفوري بالقائمة (لضمان الاستجابة)
+    ctx.replyWithPhoto(welcomePhoto, {
+        caption: `🚀 أهلاً بك يا ${ctx.from.first_name}!\nاستخدم القائمة بالأسفل للجمع الأرباح.`,
         ...Markup.keyboard([
             ["👤 حسابي", "🔗 الإحالة"],
             ["🎯 المهام", "🎡 عجلة الحظ"],
             ["💰 سحب الأرباح", "⚙️ الإدارة"]
         ]).resize()
-    });
+    }).catch(e => console.log("Reply Error"));
 
-    // 2. معالجة البيانات في الخلفية (نظام الإحالة والتسجيل)
+    // تسجيل البيانات في الخلفية
     if (dbAvailable) {
         const userRef = db.ref(`users/${userId}`);
-        const snap = await userRef.once('value');
-        if (!snap.exists()) {
-            const refId = ctx.startPayload;
-            await userRef.set({ id: userId, points: 0, name: ctx.from.first_name, joined: Date.now() });
-            
-            if (refId && refId != userId) {
-                await db.ref(`users/${refId}/points`).transaction(p => (p || 0) + 0.03);
-                bot.telegram.sendMessage(refId, "🎁 شخص جديد انضم عبر رابطك! حصلت على 0.03 USDT").catch(()=>{});
+        userRef.once('value').then(snap => {
+            if (!snap.exists()) {
+                const refId = ctx.startPayload;
+                userRef.set({ id: userId, points: 0, name: ctx.from.first_name });
+                if (refId && refId != userId) {
+                    db.ref(`users/${refId}/points`).transaction(p => (p || 0) + 0.03);
+                    bot.telegram.sendMessage(refId, "🎁 حصلت على 0.03 USDT من إحالة جديدة!").catch(()=>{});
+                }
             }
-        }
+        });
     }
 });
 
-// --- الأزرار والتفاعل ---
+// 2. زر حسابي
 bot.hears("👤 حسابي", async (ctx) => {
-    if (!dbAvailable) return ctx.reply("⚠️ الخدمة غير متوفرة حالياً.");
+    if (!dbAvailable) return ctx.reply("⚠️ الخدمة مؤقتاً غير متوفرة.");
     const snap = await db.ref(`users/${ctx.from.id}`).once('value');
     const user = snap.val() || { points: 0 };
-    ctx.reply(`👤 الاسم: ${ctx.from.first_name}\n💰 الرصيد: ${parseFloat(user.points || 0).toFixed(3)} USDT`);
+    ctx.reply(`💰 رصيدك الحالي: ${parseFloat(user.points || 0).toFixed(3)} USDT`);
 });
 
+// 3. زر الإحالة
 bot.hears("🔗 الإحالة", (ctx) => {
-    ctx.reply(`🔗 رابط الإحالة الخاص بك:\nhttps://t.me/${ctx.botInfo.username}?start=${ctx.from.id}\n\n🎁 اربح 0.03 USDT عن كل صديق!`);
+    ctx.reply(`🔗 رابط الإحالة الخاص بك:\nhttps://t.me/${ctx.botInfo.username}?start=${ctx.from.id}\n\n🎁 مكافأة كل إحالة: 0.03 USDT`);
 });
 
+// 4. سحب الأرباح
 bot.hears("💰 سحب الأرباح", (ctx) => {
-    ctx.reply("💵 الحد الأدنى للسحب هو 5 USDT.\nعند الوصول للحد، أرسل عنوان محفظتك TRC20 هنا.");
+    ctx.reply("⚠️ الحد الأدنى للسحب: 5 USDT.\nأرسل عنوان محفظتك هنا عند الوصول للحد.");
 });
 
-// --- لوحة الإدارة (Admin) ---
+// 5. لوحة الإدارة (للأدمن فقط)
 bot.hears("⚙️ الإدارة", (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
-    ctx.reply("👑 لوحة التحكم:\n\n- لإضافة قناة: `اضف @يوزر` \n- للإذاعة: `اذاعة النص` \n- لشحن نقاط: `شحن ID المبلغ`", { parse_mode: 'Markdown' });
+    ctx.reply("👑 لوحة التحكم:\n\n- لإضافة قناة: `اضف @يوزر` \n- للإذاعة: `اذاعة النص`", { parse_mode: 'Markdown' });
 });
 
+// معالجة النصوص (للأدمن)
 bot.on('text', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
     const text = ctx.message.text;
 
-    // إضافة قناة اشتراك إجباري
     if (text.startsWith("اضف @")) {
         const ch = text.split(" ")[1];
-        const snap = await db.ref('settings/channels').once('value');
-        let channels = snap.val() || [];
-        if (!channels.includes(ch)) {
-            channels.push(ch);
-            await db.ref('settings/channels').set(channels);
-            ctx.reply(`✅ تمت إضافة القناة: ${ch}`);
-        }
+        await db.ref('settings/channels').transaction(arr => {
+            if (!arr) arr = [];
+            if (!arr.includes(ch)) arr.push(ch);
+            return arr;
+        });
+        ctx.reply(`✅ تمت إضافة القناة ${ch}`);
     }
 
-    // إذاعة جماعية
     if (text.startsWith("اذاعة ")) {
         const msg = text.replace("اذاعة ", "");
         const snap = await db.ref('users').once('value');
         const users = snap.val();
         if (users) {
             Object.keys(users).forEach(id => bot.telegram.sendMessage(id, msg).catch(()=>{}));
-            ctx.reply("📢 تم إرسال الإذاعة لجميع المستخدمين.");
+            ctx.reply("📢 تم إرسال الإذاعة للجميع.");
         }
     }
 });
 
-// تشغيل البوت
-bot.launch().then(() => console.log("🚀 FULL SYSTEM READY"));
-
-// لمنع التوقف المفاجئ
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+bot.launch().then(() => console.log("🚀 BOT IS LIVE"));
