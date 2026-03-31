@@ -1,7 +1,7 @@
 {
-  "name": "usdt-master-bot",
+  "name": "novaton-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "USDT Master Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
