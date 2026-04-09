@@ -8,13 +8,12 @@ const BOT_TOKEN = '8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8';
 const ADMIN_ID = 1683002116;
 const bot = new Telegraf(BOT_TOKEN);
 
-// --- 🌐 سيرفر الاستجابة السريعة ---
+// --- 🌐 نظام منع التوقف (Express) ---
 const app = express();
-app.get('/', (req, res) => res.send('Novaton System is Running ✅'));
-app.listen(process.env.PORT || 10000, () => console.log("📡 Server Ready"));
+app.get('/', (req, res) => res.send('Novaton System is Live ✅'));
+app.listen(process.env.PORT || 10000);
 
-// --- 🔥 ربط Firebase بأمان ---
-let db;
+// --- 🔥 ربط Firebase ---
 try {
     const serviceAccount = require("./serviceAccountKey.json");
     if (!admin.apps.length) {
@@ -23,15 +22,12 @@ try {
             databaseURL: "https://novaton-bot-default-rtdb.firebaseio.com"
         });
     }
-    db = admin.database();
-    console.log("🔥 Firebase: Connected Successfully");
-} catch (e) {
-    console.log("❌ Firebase Error: Check your serviceAccountKey.json file!");
-}
+} catch (e) { console.log("Firebase Connection Error:", e.message); }
+const db = admin.database();
 
-// --- 🛡️ وظيفة التحقق من الاشتراك ---
-async function checkMembership(ctx, userId) {
-    if (!db) return true; 
+// --- 🛡️ دالة فحص الاشتراك الإجباري ---
+async function checkSub(ctx, userId) {
+    if (!db) return true;
     const snap = await db.ref('settings/channels').once('value');
     const channels = snap.val() || [];
     if (channels.length === 0) return true;
@@ -49,64 +45,61 @@ async function checkMembership(ctx, userId) {
 bot.start(async (ctx) => {
     try {
         const userId = ctx.from.id;
-        console.log(`👤 New Action: Start from ${userId}`);
 
         // 1. نظام الحماية الذكي (فحص الحظر)
         if (db) {
-            const isBanned = await db.ref(`blacklist/${userId}`).once('value');
-            if (isBanned.exists()) return ctx.reply("🚫 حسابك محظور نهائياً من النظام.");
+            const banned = await db.ref(`blacklist/${userId}`).once('value');
+            if (banned.exists()) return ctx.reply("🚫 حسابك محظور نهائياً من قبل الإدارة.");
         }
 
-        // 2. فحص الاشتراك الإجباري (مع إظهار اللوجو)
-        const hasJoined = await checkMembership(ctx, userId);
-        if (!hasJoined) {
+        // 2. المرحلة الأولى: الاشتراك الإجباري مع اللوجو
+        const isSub = await checkSub(ctx, userId);
+        if (!isSub) {
             const chSnap = await db.ref('settings/channels').once('value');
             const channels = chSnap.val() || [];
-            const keyboard = channels.map(ch => [Markup.button.url(`📢 انضم للقناة: ${ch}`, `https://t.me/${ch.replace('@','')}`)]);
-            keyboard.push([Markup.button.callback("✅ تم الاشتراك - دخول", "verify_now")]);
+            const buttons = channels.map(ch => [Markup.button.url(`📢 انضم هنا: ${ch}`, `https://t.me/${ch.replace('@','')}`)]);
+            buttons.push([Markup.button.callback("✅ تحقق من الاشتراك", "verify_sub")]);
 
             return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-                caption: "🛡️ **نظام الحماية والتحقق**\n\nيجب عليك الاشتراك في القنوات أدناه لتفعيل حسابك ومكافآت TON.\n\n⚠️ يمنع استخدام الـ VPN أو الحسابات الوهمية.",
-                ...Markup.inlineKeyboard(keyboard)
+                caption: "🛡️ **نظام التحقق من الهوية**\n\nيجب عليك الاشتراك في القنوات أدناه لتفعيل حسابك.\n\n⚠️ يمنع استخدام الـ VPN أو الحسابات الوهمية لتجنب الحظر التلقائي.",
+                ...Markup.inlineKeyboard(buttons)
             });
         }
 
-        // 3. تسجيل المستخدم ومنح مكافأة الإحالة (0.03 TON)
+        // 3. المرحلة الثانية: نظام الحماية وتسجيل البيانات
         if (db) {
             const userRef = db.ref(`users/${userId}`);
-            const userSnap = await userRef.once('value');
-            if (!userSnap.exists()) {
+            const snap = await userRef.once('value');
+            if (!snap.exists()) {
                 await userRef.set({ id: userId, name: ctx.from.first_name, balance: 0, joined: Date.now() });
                 const refId = ctx.startPayload;
                 if (refId && refId != userId) {
                     await db.ref(`users/${refId}/balance`).transaction(b => (b || 0) + 0.03);
-                    bot.telegram.sendMessage(refId, "🎁 مبروك! حصلت على 0.03 TON من إحالة جديدة.").catch(()=>{});
+                    bot.telegram.sendMessage(refId, "🎁 حصلت على 0.03 TON مكافأة إحالة!").catch(()=>{});
                 }
             }
         }
 
         // 4. الواجهة الرئيسية
-        ctx.reply("🚀 **تم تفعيل نظام الحماية بنجاح!**\n\nأهلاً بك في النسخة النهائية من Novaton TON. استخدم الأزرار أدناه للتحكم:", 
+        ctx.reply(`🛡️ **تم تفعيل نظام الحماية لحسابك**\n\nمرحباً بك في Novaton، البوت الآن مستعد للعمل بنسبة 100%.`, 
         Markup.keyboard([
             ["👤 حسابي", "🔗 الإحالة"],
-            ["📥 إيداع", "📤 سحب"],
+            ["📥 إيداع", "📤 سحب الأرباح"],
             ["⚙️ الإدارة"]
         ]).resize());
 
-    } catch (err) {
-        console.log("❌ Error in Start Command:", err.message);
-    }
+    } catch (err) { console.log("Start Error:", err.message); }
 });
 
-// --- 📩 تفاعل زر التحقق ---
-bot.action("verify_now", async (ctx) => {
-    const isOk = await checkMembership(ctx, ctx.from.id);
+// --- 📩 زر التحقق ---
+bot.action("verify_sub", async (ctx) => {
+    const isOk = await checkSub(ctx, ctx.from.id);
     if (isOk) {
-        await ctx.answerCbQuery("✅ تم التحقق! أرسل /start");
+        await ctx.answerCbQuery("✅ تم التحقق بنجاح!");
         await ctx.deleteMessage();
-        ctx.reply("🌟 مبروك! اجتزت الفحص. اضغط /start للدخول.");
+        ctx.reply("🌟 مبروك! اجتزت الفحص. أرسل /start الآن للدخول للواجهة الرئيسية.");
     } else {
-        await ctx.answerCbQuery("❌ يجب الاشتراك في جميع القنوات!", { show_alert: true });
+        await ctx.answerCbQuery("❌ لم تشترك في كل القنوات بعد!", { show_alert: true });
     }
 });
 
@@ -118,12 +111,12 @@ bot.on('text', async (ctx) => {
     if (msg.startsWith("اضف @")) {
         const ch = msg.split(" ")[1];
         await db.ref('settings/channels').transaction(a => { if(!a) a=[]; a.push(ch); return a; });
-        ctx.reply(`✅ تمت إضافة ${ch}`);
+        ctx.reply(`✅ تمت إضافة ${ch} للاشتراك الإجباري.`);
     }
-    if (msg.startsWith("شحن ")) {
-        const [_, id, amt] = msg.split(" ");
-        await db.ref(`users/${id}/balance`).transaction(b => (b || 0) + parseFloat(amt));
-        ctx.reply(`✅ تم شحن ${amt} TON لـ ${id}`);
+    if (msg.startsWith("حظر ")) {
+        const id = msg.split(" ")[1];
+        await db.ref(`blacklist/${id}`).set(true);
+        ctx.reply(`🚫 تم حظر ${id} نهائياً.`);
     }
 });
 
@@ -134,4 +127,4 @@ setInterval(() => {
     }
 }, 240000);
 
-bot.launch().then(() => console.log("✅ Bot is Polling..."));
+bot.launch().then(() => console.log("🚀 Novaton Elite is Running..."));
