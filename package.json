@@ -1,14 +1,13 @@
 {
   "name": "novaton-bot",
   "version": "1.0.0",
-  "description": "USDT Master Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "telegraf": "^4.12.0",
-    "firebase-admin": "^11.5.0",
+    "firebase-admin": "^11.10.1",
     "express": "^4.18.2"
   }
 }
