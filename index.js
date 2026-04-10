@@ -2,79 +2,80 @@ const { Telegraf, Markup } = require('telegraf');
 const express = require('express');
 const path = require('path');
 
-// --- الإعدادات ---
 const BOT_TOKEN = '8685057163:AAGT3o3Ad-MAYfrHQmxRkA6Py6pnKPnUzMk';
 const ADMIN_ID = 1683002116;
+const CHANNEL_ID = '@VaultoUSDT'; // قناتك
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
-
-// --- نظام تخزين في ذاكرة السيرفر (بديل فيرباس) ---
-let users = {}; // لتخزين بيانات الأعضاء
-let withdrawals = []; // لتخزين طلبات السحب
-let blacklist = []; // لتخزين المحظورين
 
 app.use(express.static(path.join(__dirname)));
 app.get('/validate', (req, res) => res.sendFile(path.join(__dirname, 'validate.html')));
 app.listen(process.env.PORT || 10000);
 
-// --- فحص الاشتراك الإجباري ---
-async function checkSub(ctx) {
+// دالة فحص الاشتراك الإجباري
+async function checkSubscription(ctx) {
     try {
-        const res = await ctx.telegram.getChatMember('@VaultoUSDT', ctx.from.id);
-        return ['member', 'administrator', 'creator'].includes(res.status);
+        const member = await ctx.telegram.getChatMember(CHANNEL_ID, ctx.from.id);
+        return ['member', 'administrator', 'creator'].includes(member.status);
     } catch (e) { return false; }
 }
 
-// --- البداية ونظام الحماية ---
 bot.start(async (ctx) => {
-    const userId = ctx.from.id;
-    if (blacklist.includes(userId)) return ctx.reply("🚫 أنت محظور من استخدام البوت.");
+    const isSub = await checkSubscription(ctx);
+    
+    // المرحلة الأولى: إذا لم يشترك تظهر صورة القنوات والتحقق
+    if (!isSub) {
+        return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
+            caption: `⚠️ **عذراً! يجب عليك الاشتراك أولاً**\n\nلكي نتمكن من حماية حسابك وفحص جهازك، يرجى الانضمام للقنوات أدناه ثم اضغط على زر "التحقق".`,
+            ...Markup.inlineKeyboard([
+                [Markup.button.url("📢 القناة الرسمية", "https://t.me/VaultoUSDT")],
+                [Markup.button.callback("✅ التحقق من الاشتراك", "verify_sub")]
+            ])
+        });
+    }
 
-    // تسجيل المستخدم في الذاكرة
-    if (!users[userId]) users[userId] = { id: userId, name: ctx.from.first_name, balance: 0 };
+    // المرحلة الثانية: إذا اشترك تظهر واجهة الحماية (Web App)
+    showProtectionButton(ctx);
+});
 
+// معالجة ضغطة زر التحقق من الاشتراك
+bot.action('verify_sub', async (ctx) => {
+    const isSub = await checkSubscription(ctx);
+    if (isSub) {
+        await ctx.answerCbQuery("✅ تم تأكيد الاشتراك!");
+        await ctx.deleteMessage();
+        showProtectionButton(ctx);
+    } else {
+        await ctx.answerCbQuery("❌ لم تشترك في القناة بعد!", { show_alert: true });
+    }
+});
+
+function showProtectionButton(ctx) {
     const domain = process.env.RENDER_EXTERNAL_HOSTNAME || 'novaton-bot.onrender.com';
     const webAppUrl = `https://${domain}/validate`;
 
-    return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-        caption: `🛡️ **نظام الحماية والتحقق**\n\n1️⃣ اشترك هنا: @VaultoUSDT\n2️⃣ اضغط الزر بالأسفل لفحص أمان جهازك.\n\n⚠️ يمنع استخدام الـ VPN أو الحسابات المتعددة.`,
+    ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
+        caption: `🛡️ **نظام الحماية نشط**\n\nأهلاً بك. اضغط على الزر أدناه لبدء فحص بصمة الجهاز والـ IP الخاص بك لتفعيل السحب.`,
         ...Markup.inlineKeyboard([
-            [Markup.button.url("📢 القناة الرسمية", "https://t.me/VaultoUSDT")],
-            [Markup.button.webApp("🔍 فحص الأمان والدخول", webAppUrl)]
+            [Markup.button.webApp("🔍 فحص أمان الجهاز والدخول", webAppUrl)]
         ])
     });
-});
+}
 
-// --- لوحة التحكم للمدير (/admin) ---
-bot.command('admin', (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return;
-    
-    ctx.reply(`👑 **لوحة إدارة Novaton**\n\n👥 الأعضاء النشطين: ${Object.keys(users).length}\n📥 طلبات السحب: ${withdrawals.length}`, 
-    Markup.inlineKeyboard([
-        [Markup.button.callback("📢 إذاعة للجميع", "broadcast")],
-        [Markup.button.callback("📥 عرض السحوبات", "show_withdraws")],
-        [Markup.button.callback("🚫 حظر مستخدم", "ban_user")]
-    ]));
-});
-
-// عند انتهاء فحص الـ Web App
-bot.on('web_app_data', async (ctx) => {
-    if (!(await checkSub(ctx))) return ctx.reply("❌ اشرك في القناة أولاً!");
-    
-    ctx.reply("✅ تم تفعيل الحماية بنجاح!", Markup.keyboard([
+// استقبال بيانات الحماية (بعد انتهاء الـ Web App)
+bot.on('web_app_data', (ctx) => {
+    ctx.reply("🚀 **تم التحقق!** أهلاً بك في واجهة Novaton.", Markup.keyboard([
         ["👤 حسابي", "🔗 الإحالة"],
         ["📥 إيداع", "📤 سحب الأرباح"]
     ]).resize());
 });
 
-// --- نظام الإذاعة ---
-bot.action('broadcast', (ctx) => {
-    ctx.reply("أرسل نص الإذاعة الآن:");
-    bot.on('text', (msg) => {
-        if (msg.from.id !== ADMIN_ID) return;
-        Object.keys(users).forEach(id => bot.telegram.sendMessage(id, msg.message.text).catch(() => {}));
-        msg.reply("✅ تمت الإذاعة بنجاح.");
-    });
+// لوحة الإدارة
+bot.command('admin', (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return;
+    ctx.reply("👑 **لوحة الإدارة**", Markup.inlineKeyboard([
+        [Markup.button.callback("📢 إذاعة", "cast"), Markup.button.callback("🚫 حظر", "ban")]
+    ]));
 });
 
-bot.launch({ dropPendingUpdates: true });
+bot.launch();
