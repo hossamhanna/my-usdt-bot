@@ -4,78 +4,88 @@ const path = require('path');
 
 const BOT_TOKEN = '8685057163:AAGT3o3Ad-MAYfrHQmxRkA6Py6pnKPnUzMk';
 const ADMIN_ID = 1683002116;
-const CHANNEL_ID = '@VaultoUSDT'; // قناتك
+const CHANNEL_ID = '@VaultoUSDT';
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
+
+let users = new Set(); // لتخزين عدد الأعضاء مؤقتاً
 
 app.use(express.static(path.join(__dirname)));
 app.get('/validate', (req, res) => res.sendFile(path.join(__dirname, 'validate.html')));
 app.listen(process.env.PORT || 10000);
 
-// دالة فحص الاشتراك الإجباري
-async function checkSubscription(ctx) {
+// دالة التحقق من الاشتراك
+async function checkSub(ctx) {
     try {
-        const member = await ctx.telegram.getChatMember(CHANNEL_ID, ctx.from.id);
-        return ['member', 'administrator', 'creator'].includes(member.status);
+        const res = await ctx.telegram.getChatMember(CHANNEL_ID, ctx.from.id);
+        return ['member', 'administrator', 'creator'].includes(res.status);
     } catch (e) { return false; }
 }
 
 bot.start(async (ctx) => {
-    const isSub = await checkSubscription(ctx);
-    
-    // المرحلة الأولى: إذا لم يشترك تظهر صورة القنوات والتحقق
+    const isSub = await checkSub(ctx);
+    users.add(ctx.from.id);
+
     if (!isSub) {
         return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-            caption: `⚠️ **عذراً! يجب عليك الاشتراك أولاً**\n\nلكي نتمكن من حماية حسابك وفحص جهازك، يرجى الانضمام للقنوات أدناه ثم اضغط على زر "التحقق".`,
+            caption: `⚠️ **Access Denied**\n\nPlease join our official channel to verify your account and start earning.`,
             ...Markup.inlineKeyboard([
-                [Markup.button.url("📢 القناة الرسمية", "https://t.me/VaultoUSDT")],
-                [Markup.button.callback("✅ التحقق من الاشتراك", "verify_sub")]
+                [Markup.button.url("📢 Join Channel", "https://t.me/VaultoUSDT")],
+                [Markup.button.callback("✅ Verify Subscription", "verify_now")]
             ])
         });
     }
-
-    // المرحلة الثانية: إذا اشترك تظهر واجهة الحماية (Web App)
-    showProtectionButton(ctx);
+    showSecurityButton(ctx);
 });
 
-// معالجة ضغطة زر التحقق من الاشتراك
-bot.action('verify_sub', async (ctx) => {
-    const isSub = await checkSubscription(ctx);
-    if (isSub) {
-        await ctx.answerCbQuery("✅ تم تأكيد الاشتراك!");
+bot.action('verify_now', async (ctx) => {
+    if (await checkSub(ctx)) {
+        await ctx.answerCbQuery("Success!");
         await ctx.deleteMessage();
-        showProtectionButton(ctx);
+        showSecurityButton(ctx);
     } else {
-        await ctx.answerCbQuery("❌ لم تشترك في القناة بعد!", { show_alert: true });
+        await ctx.answerCbQuery("❌ You haven't joined yet!", { show_alert: true });
     }
 });
 
-function showProtectionButton(ctx) {
+function showSecurityButton(ctx) {
     const domain = process.env.RENDER_EXTERNAL_HOSTNAME || 'novaton-bot.onrender.com';
     const webAppUrl = `https://${domain}/validate`;
 
-    ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-        caption: `🛡️ **نظام الحماية نشط**\n\nأهلاً بك. اضغط على الزر أدناه لبدء فحص بصمة الجهاز والـ IP الخاص بك لتفعيل السحب.`,
-        ...Markup.inlineKeyboard([
-            [Markup.button.webApp("🔍 فحص أمان الجهاز والدخول", webAppUrl)]
-        ])
-    });
+    ctx.reply(`🛡️ **System Security Scan**\n\nPlease complete the device security check to access your dashboard.`, 
+    Markup.inlineKeyboard([
+        [Markup.button.webApp("🔍 Start Security Scan", webAppUrl)]
+    ]));
 }
 
-// استقبال بيانات الحماية (بعد انتهاء الـ Web App)
+// حل مشكلة ظهور الأزرار بعد الـ Web App
 bot.on('web_app_data', (ctx) => {
-    ctx.reply("🚀 **تم التحقق!** أهلاً بك في واجهة Novaton.", Markup.keyboard([
-        ["👤 حسابي", "🔗 الإحالة"],
-        ["📥 إيداع", "📤 سحب الأرباح"]
+    ctx.reply("✅ **Verification Complete!**\nWelcome to Novaton Official Bot.", 
+    Markup.keyboard([
+        ["👤 My Account", "🔗 Referral"],
+        ["📥 Deposit", "📤 Withdraw"]
     ]).resize());
 });
 
-// لوحة الإدارة
+// --- 👑 لوحة الإدارة (Admin Panel) ---
 bot.command('admin', (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return;
-    ctx.reply("👑 **لوحة الإدارة**", Markup.inlineKeyboard([
-        [Markup.button.callback("📢 إذاعة", "cast"), Markup.button.callback("🚫 حظر", "ban")]
+
+    ctx.reply(`👑 **Admin Dashboard**\n\nUsers: ${users.size}\nStatus: Active`, 
+    Markup.inlineKeyboard([
+        [Markup.button.callback("📢 Broadcast", "admin_cast"), Markup.button.callback("🚫 Ban User", "admin_ban")],
+        [Markup.button.callback("⚙️ Settings", "admin_set")]
     ]));
+});
+
+// الإذاعة
+bot.action('admin_cast', (ctx) => {
+    ctx.reply("Send the message you want to broadcast to all users:");
+    bot.on('text', (msg) => {
+        if (msg.from.id !== ADMIN_ID) return;
+        users.forEach(id => bot.telegram.sendMessage(id, msg.message.text).catch(() => {}));
+        msg.reply("✅ Broadcast sent!");
+    });
 });
 
 bot.launch();
