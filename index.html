@@ -1,113 +1,146 @@
-const { Telegraf, Markup } = require('telegraf');
-const admin = require('firebase-admin');
-const express = require('express');
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Novaton Shield</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+        }
 
-// --- ⚙️ الإعدادات الأساسية ---
-const bot = new Telegraf('8783102340:AAHsT6hQc2NZSd8hKJFrXwl0YGvwPNUFYK8');
-const ADMIN_ID = 1683002116;
-const LOGO_URL = "https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg";
-const CHANNELS = ["@VaultoUSDT", "@E_G_58"];
+        .shield-container {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            margin-bottom: 30px;
+        }
 
-// --- 🔥 تهيئة Firebase ---
-const serviceAccount = require("./serviceAccountKey.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://novaton-bot-default-rtdb.firebaseio.com"
-});
-const db = admin.database();
+        /* حلقة التحميل المتحركة */
+        .loader {
+            width: 100%;
+            height: 100%;
+            border: 3px solid rgba(52, 152, 219, 0.1);
+            border-top: 3px solid #0088cc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
 
-// --- 🌐 سيرفر Express لإرضاء Render (حل مشكلة التوقف) ---
-const app = express();
-app.get('/', (req, res) => res.send('Bot is Running! ✅'));
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+        .shield-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 50px;
+        }
 
-// --- 🛡️ نظام الحماية القوي (Security Middleware) ---
-bot.use(async (ctx, next) => {
-  if (!ctx.from) return;
-  
-  const username = ctx.from.username;
-  // حماية 1: منع الحسابات بدون اسم مستخدم (Anti-Clone)
-  if (!username) {
-    return ctx.reply("⚠️ حماية: يجب تعيين اسم مستخدم (Username) لحسابك أولاً لاستخدام البوت.");
-  }
-  return next();
-});
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
 
-// --- 📢 دالة فحص الاشتراك الإجباري ---
-async function isSubscribed(ctx) {
-  if (ctx.from.id === ADMIN_ID) return true;
-  for (const ch of CHANNELS) {
-    try {
-      const member = await ctx.telegram.getChatMember(ch, ctx.from.id);
-      if (['left', 'kicked'].includes(member.status)) return false;
-    } catch (e) { continue; }
-  }
-  return true;
-}
+        .status-list {
+            width: 80%;
+            text-align: left;
+            margin-top: 20px;
+        }
 
-// --- 🤖 أوامر البوت ---
-bot.start(async (ctx) => {
-  const userId = ctx.from.id;
-  
-  // تسجيل المستخدم في Firebase
-  const userRef = db.ref(`users/${userId}`);
-  const snapshot = await userRef.once('value');
-  if (!snapshot.exists()) {
-    await userRef.set({
-      balance: 0.0,
-      referrals: 0,
-      username: ctx.from.username,
-      joinedAt: new Date().toISOString()
-    });
-  }
+        .status-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 14px;
+            opacity: 0.3;
+            transition: opacity 0.5s;
+        }
 
-  // فحص الاشتراك
-  if (!(await isSubscribed(ctx))) {
-    const buttons = CHANNELS.map(ch => Markup.button.url(`📢 اشترك في ${ch}`, `https://t.me/${ch.slice(1)}`));
-    buttons.push(Markup.button.callback("✅ تم الاشتراك", "check_sub"));
-    
-    return ctx.replyWithPhoto(LOGO_URL, {
-      caption: "👋 **أهلاً بك!**\n\nيجب عليك الانضمام لقنواتنا أولاً لتفعيل نظام الربح الخاص بك.",
-      ...Markup.inlineKeyboard(buttons, { columns: 1 })
-    });
-  }
+        .status-item.active { opacity: 1; }
+        .status-item.done { color: #2ecc71; opacity: 1; }
 
-  // لوحة المستخدم أو الإدارة
-  const menu = Markup.keyboard([
-    ["👤 حسابي", "🔗 رابط الإحالة"],
-    ["🎡 عجلة الحظ", "🎯 المهام"],
-    ["📊 إحصائيات", "🎧 الدعم"]
-  ]).resize();
+        .dot {
+            width: 8px;
+            height: 8px;
+            background-color: #0088cc;
+            border-radius: 50%;
+            margin-right: 15px;
+        }
 
-  if (userId === ADMIN_ID) {
-    ctx.replyWithPhoto(LOGO_URL, {
-      caption: "💻 **لوحة الإدارة مفتوحة الآن**\nنظام الحماية: فعال ✅",
-      ...Markup.keyboard([["📊 إحصائيات البوت", "🏠 وضع المستخدم"]]).resize()
-    });
-  } else {
-    ctx.replyWithPhoto(LOGO_URL, {
-      caption: "مرحباً بك في Earn Master Bot! 👋\nابدأ بجمع USDT الآن.",
-      ...menu
-    });
-  }
-});
+        .done .dot { background-color: #2ecc71; }
 
-// --- 🛠️ معالجة النصوص ---
-bot.hears("👤 حسابي", async (ctx) => {
-  const snapshot = await db.ref(`users/${ctx.from.id}`).once('value');
-  const data = snapshot.val() || { balance: 0 };
-  ctx.reply(`💰 **رصيدك الحالي:** ${data.balance} USDT`);
-});
+        .progress-bar-container {
+            width: 80%;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            margin-top: 30px;
+            overflow: hidden;
+        }
 
-bot.hears("🔗 رابط الإحالة", (ctx) => {
-  ctx.reply(`🔗 **رابط الإحالة الخاص بك:**\nhttps://t.me/EarnMasterBot?start=${ctx.from.id}`);
-});
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #0088cc, #2ecc71);
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
 
-// --- 🔄 تشغيل البوت ---
-bot.launch();
-console.log("🚀 JS Bot is Online with Protection...");
+    <div class="shield-container">
+        <div class="loader"></div>
+        <div class="shield-icon">🛡️</div>
+    </div>
 
-// إيقاف آمن
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    <h2 id="main-title">جاري فحص الأمان...</h2>
+
+    <div class="status-list">
+        <div id="step1" class="status-item"><div class="dot"></div> فحص عنوان الـ IP والـ VPN...</div>
+        <div id="step2" class="status-item"><div class="dot"></div> فحص بصمة الجهاز الرقمية...</div>
+        <div id="step3" class="status-item"><div class="dot"></div> تشفير بيانات الجلسة...</div>
+    </div>
+
+    <div class="progress-bar-container">
+        <div id="progress" class="progress-fill"></div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        const steps = [
+            { id: 'step1', time: 1500, title: 'فحص الاتصال...' },
+            { id: 'step2', time: 3000, title: 'تأمين الحساب...' },
+            { id: 'step3', time: 4500, title: 'اكتمل الفحص!' }
+        ];
+
+        steps.forEach((step, index) => {
+            setTimeout(() => {
+                const el = document.getElementById(step.id);
+                el.classList.add('active');
+                document.getElementById('main-title').innerText = step.title;
+                document.getElementById('progress').style.width = ((index + 1) / steps.length * 100) + '%';
+                
+                if (index > 0) document.getElementById(steps[index-1].id).classList.add('done');
+                
+                if (index === steps.length - 1) {
+                    setTimeout(() => {
+                        el.classList.add('done');
+                        tg.close(); // إغلاق التطبيق والعودة للبوت
+                    }, 1000);
+                }
+            }, step.time);
+        });
+    </script>
+</body>
+</html>
