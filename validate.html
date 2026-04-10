@@ -1,34 +1,23 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Novaton Protection</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { background-color: #0b111e; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .circle { width: 150px; height: 150px; border: 3px solid rgba(0,136,204,0.1); border-top: 3px solid #0088cc; border-radius: 50%; animation: spin 1s linear infinite; }
+        body { background: #0b111e; color: white; text-align: center; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .loader { width: 100px; height: 100px; border: 5px solid #0088cc; border-top-color: transparent; border-radius: 50%; animation: spin 1s infinite linear; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-        .info { margin-top: 20px; text-align: center; }
-        .line { width: 80%; height: 2px; background: rgba(255,255,255,0.1); margin-top: 20px; position: relative; overflow: hidden; }
-        .line::after { content: ''; position: absolute; width: 40%; height: 100%; background: #0088cc; animation: load 1.5s infinite; }
-        @keyframes load { 0% { left: -50%; } 100% { left: 100%; } }
     </style>
 </head>
 <body>
-    <div class="circle"></div>
-    <div class="info">
-        <h3>جاري فحص بروتوكول الأمان...</h3>
-        <p style="color: #8e95a3; font-size: 14px;">يتم الآن ربط بصمة الجهاز بحسابك</p>
-    </div>
-    <div class="line"></div>
-
+    <div class="loader"></div>
+    <h2>جاري فحص بصمة الجهاز...</h2>
+    <p>بروتوكول حماية Novaton نشط 🛡️</p>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-        setTimeout(() => {
-            tg.close(); // العودة للبوت بعد 3 ثواني من الفحص
-        }, 3500);
+        setTimeout(() => { tg.sendData("verified"); tg.close(); }, 3000);
     </script>
 </body>
 </html>
