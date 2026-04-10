@@ -1,48 +1,84 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Novaton Protection</title>
+    <title>Security Check</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background-color: #0b111e; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        .scanner { width: 120px; height: 120px; border: 4px solid rgba(0,136,204,0.1); border-top: 4px solid #0088cc; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        .status-box { margin-top: 25px; width: 80%; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid #333; }
-        .log-item { font-size: 13px; margin: 5px 0; color: #8e95a3; display: flex; align-items: center; }
-        .log-item.success { color: #2ecc71; }
-        .dot { width: 6px; height: 6px; background: #0088cc; border-radius: 50%; margin-left: 10px; }
+        body {
+            background-color: #0b111e;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .loader-container {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* الدائرة المتحركة */
+        .circle-loader {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 3px solid rgba(255, 255, 255, 0.05);
+            border-top: 3px solid #0088cc;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        /* شكل الجهاز في المنتصف */
+        .device-icon {
+            width: 50px;
+            height: 85px;
+            border: 3px solid white;
+            border-radius: 8px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .device-icon::after {
+            content: '';
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 10px;
+            height: 10px;
+            border: 2px solid white;
+            border-radius: 50%;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
-    <div class="scanner"></div>
-    <h3>جاري فحص بروتوكول الأمان...</h3>
-    <div class="status-box" id="logs">
-        <div class="log-item" id="log1"><div class="dot"></div> فحص عنوان الـ IP والـ VPN...</div>
-        <div class="log-item" id="log2"><div class="dot"></div> فحص بصمة المتصفح والجهاز...</div>
-        <div class="log-item" id="log3"><div class="dot"></div> تشفير البيانات السحابية...</div>
+    <div class="loader-container">
+        <div class="circle-loader"></div>
+        <div class="device-icon"></div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
         
-        function updateLog(id, text) {
-            const el = document.getElementById(id);
-            el.classList.add('success');
-            el.innerHTML = "✅ " + text;
-        }
-
-        setTimeout(() => updateLog('log1', 'تم فحص الـ IP بنجاح'), 1000);
-        setTimeout(() => updateLog('log2', 'بصمة الجهاز أصلية'), 2000);
+        // إغلاق تلقائي وإرسال إشارة النجاح بعد 4 ثوانٍ
         setTimeout(() => {
-            updateLog('log3', 'تم التشفير والتحقق');
-            setTimeout(() => {
-                tg.sendData("security_verified");
-                tg.close();
-            }, 800);
-        }, 3000);
+            tg.sendData("verified_success");
+            tg.close();
+        }, 4000);
     </script>
 </body>
 </html>
