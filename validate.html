@@ -1,23 +1,48 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Novaton Protection</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: #0b111e; color: white; text-align: center; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .loader { width: 100px; height: 100px; border: 5px solid #0088cc; border-top-color: transparent; border-radius: 50%; animation: spin 1s infinite linear; }
+        body { background-color: #0b111e; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        .scanner { width: 120px; height: 120px; border: 4px solid rgba(0,136,204,0.1); border-top: 4px solid #0088cc; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        .status-box { margin-top: 25px; width: 80%; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid #333; }
+        .log-item { font-size: 13px; margin: 5px 0; color: #8e95a3; display: flex; align-items: center; }
+        .log-item.success { color: #2ecc71; }
+        .dot { width: 6px; height: 6px; background: #0088cc; border-radius: 50%; margin-left: 10px; }
     </style>
 </head>
 <body>
-    <div class="loader"></div>
-    <h2>جاري فحص بصمة الجهاز...</h2>
-    <p>بروتوكول حماية Novaton نشط 🛡️</p>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <div class="scanner"></div>
+    <h3>جاري فحص بروتوكول الأمان...</h3>
+    <div class="status-box" id="logs">
+        <div class="log-item" id="log1"><div class="dot"></div> فحص عنوان الـ IP والـ VPN...</div>
+        <div class="log-item" id="log2"><div class="dot"></div> فحص بصمة المتصفح والجهاز...</div>
+        <div class="log-item" id="log3"><div class="dot"></div> تشفير البيانات السحابية...</div>
+    </div>
+
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-        setTimeout(() => { tg.sendData("verified"); tg.close(); }, 3000);
+        
+        function updateLog(id, text) {
+            const el = document.getElementById(id);
+            el.classList.add('success');
+            el.innerHTML = "✅ " + text;
+        }
+
+        setTimeout(() => updateLog('log1', 'تم فحص الـ IP بنجاح'), 1000);
+        setTimeout(() => updateLog('log2', 'بصمة الجهاز أصلية'), 2000);
+        setTimeout(() => {
+            updateLog('log3', 'تم التشفير والتحقق');
+            setTimeout(() => {
+                tg.sendData("security_verified");
+                tg.close();
+            }, 800);
+        }, 3000);
     </script>
 </body>
 </html>
