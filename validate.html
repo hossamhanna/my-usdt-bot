@@ -6,79 +6,56 @@
     <title>Security Check</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body {
-            background-color: #0b111e;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .loader-container {
-            position: relative;
-            width: 180px;
-            height: 180px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* الدائرة المتحركة */
+        body { background-color: #0b111e; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+        .loader-container { position: relative; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; }
+        
+        /* الدائرة الأساسية */
         .circle-loader {
             position: absolute;
-            width: 100%;
-            height: 100%;
-            border: 3px solid rgba(255, 255, 255, 0.05);
-            border-top: 3px solid #0088cc;
+            width: 100%; height: 100%;
+            border: 4px solid rgba(255, 255, 255, 0.05);
+            border-top: 4px solid #0088cc; /* أزرق أثناء الفحص */
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            transition: all 0.5s ease;
         }
 
-        /* شكل الجهاز في المنتصف */
-        .device-icon {
-            width: 50px;
-            height: 85px;
-            border: 3px solid white;
-            border-radius: 8px;
-            position: relative;
-            z-index: 2;
-        }
+        /* الحالة عند النجاح */
+        .circle-loader.success { border-top-color: #2ecc71; border-color: #2ecc71; animation: none; }
+        
+        /* الحالة عند الحظر/الفشل */
+        .circle-loader.fail { border-top-color: #e74c3c; border-color: #e74c3c; animation: none; }
 
-        .device-icon::after {
-            content: '';
-            position: absolute;
-            bottom: 5px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 10px;
-            height: 10px;
-            border: 2px solid white;
-            border-radius: 50%;
-        }
+        .device-icon { width: 50px; height: 85px; border: 3px solid white; border-radius: 8px; position: relative; transition: all 0.5s ease; }
+        .device-icon.success { border-color: #2ecc71; }
+        .device-icon.fail { border-color: #e74c3c; }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div class="loader-container">
-        <div class="circle-loader"></div>
-        <div class="device-icon"></div>
+        <div id="loader" class="circle-loader"></div>
+        <div id="device" class="device-icon"></div>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
+        const loader = document.getElementById('loader');
+        const device = document.getElementById('device');
         tg.expand();
         
-        // إغلاق تلقائي وإرسال إشارة النجاح بعد 4 ثوانٍ
+        // محاكاة الفحص
         setTimeout(() => {
-            tg.sendData("verified_success");
-            tg.close();
-        }, 4000);
+            // تحويل اللون للأخضر (نجاح)
+            loader.classList.add('success');
+            device.classList.add('success');
+            
+            setTimeout(() => {
+                // إرسال البيانات وإغلاق النافذة
+                tg.sendData("VERIFIED_OK");
+            }, 1000);
+        }, 3500);
     </script>
 </body>
 </html>
