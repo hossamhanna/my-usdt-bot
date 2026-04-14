@@ -4,114 +4,110 @@ const path = require('path');
 
 const BOT_TOKEN = '8685057163:AAGT3o3Ad-MAYfrHQmxRkA6Py6pnKPnUzMk';
 const ADMIN_ID = 1683002116;
-const CHANNEL_ID = '@VaultoUSDT'; // معرف قناتك
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
 
-// إعدادات الأرباح
-const REF_REWARD = 0.02;
-const MIN_WITHDRAW = 0.10;
-
-// تخزين البيانات مؤقتاً (لضمان السرعة)
+// --- قواعد البيانات المؤقتة ---
 let users = new Map();
 let deviceRegistry = new Map();
+let bannedUsers = new Set();
+let forceChannels = ['@VaultoUSDT']; // يمكنك إضافتها من لوحة الأدمن
 
 app.use(express.static(path.join(__dirname)));
 app.get('/validate', (req, res) => res.sendFile(path.join(__dirname, 'validate.html')));
 app.listen(process.env.PORT || 10000);
 
-// دالة التحقق من الاشتراك الإجباري (صارم جداً)
-async function checkSub(ctx) {
-    try {
-        const member = await ctx.telegram.getChatMember(CHANNEL_ID, ctx.from.id);
-        return ['member', 'administrator', 'creator'].includes(member.status);
-    } catch (e) { return false; }
+// دالة فحص الاشتراك
+async function isSubscribed(ctx) {
+    for (const ch of forceChannels) {
+        try {
+            const res = await ctx.telegram.getChatMember(ch, ctx.from.id);
+            if (!['member', 'administrator', 'creator'].includes(res.status)) return false;
+        } catch (e) { return false; }
+    }
+    return true;
 }
 
-// القواميس للغات
-const strings = {
-    en: {
-        btns: ["👤 Account", "👥 Referral", "📥 Deposit", "📤 Withdraw", "🌐 Language", "📢 Channel"],
-        welcome: "✅ Access Granted! Welcome to Novaton."
-    },
-    ar: {
-        btns: ["👤 حسابي", "👥 الإحالة", "📥 إيداع", "📤 سحب", "🌐 اللغة", "📢 القناة"],
-        welcome: "✅ تم الدخول بنجاح! أهلاً بك في نوفاتون."
-    }
+// أزرار القائمة الرئيسية (الإنجليزية)
+const mainMenu = (lang = 'en') => {
+    const btns = lang === 'en' ? 
+        [["👤 Account", "👥 Referral"], ["📥 Deposit", "📤 Withdraw"], ["🌐 Language", "📢 Channel"]] :
+        [["👤 حسابي", "👥 الإحالة"], ["📥 إيداع", "📤 سحب"], ["🌐 اللغة", "📢 القناة"]];
+    return Markup.keyboard(btns).resize();
 };
 
 bot.start(async (ctx) => {
     const userId = ctx.from.id;
-    if (!users.has(userId)) users.set(userId, { balance: 0, lang: 'en', verified: false });
+    if (bannedUsers.has(userId)) return ctx.reply("🚫 You are banned.");
 
-    // فحص الاشتراك أولاً
-    if (!(await checkSub(ctx))) {
+    if (!users.has(userId)) {
+        users.set(userId, { balance: 0, lang: 'en', verified: false, invited: 0 });
+    }
+
+    // المرحلة 1: الاشتراك الإجباري
+    if (!(await isSubscribed(ctx))) {
         return ctx.replyWithPhoto("https://image2url.com/r2/default/images/1774806219411-7438bf59-86d5-4352-9d9a-dd254c3f841d.jpg", {
-            caption: `🛡️ **Security Step 1: Membership**\n\nYou must join our official channel to verify your account.`,
+            caption: `🛡️ **Novaton Protection**\n\nPlease join our channels to continue.`,
             ...Markup.inlineKeyboard([
-                [Markup.button.url("📢 Join Channel", "https://t.me/VaultoUSDT")],
-                [Markup.button.callback("✅ Check Subscription", "verify_sub")]
+                [Markup.button.url("📢 Official Channel", "https://t.me/VaultoUSDT")],
+                [Markup.button.callback("✅ Verify Membership", "check_sub")]
             ])
         });
     }
-    sendProtectionStep(ctx);
+    sendSecurityScan(ctx);
 });
 
-bot.action('verify_sub', async (ctx) => {
-    if (await checkSub(ctx)) {
-        await ctx.answerCbQuery("Success!");
+bot.action('check_sub', async (ctx) => {
+    if (await isSubscribed(ctx)) {
         await ctx.deleteMessage();
-        sendProtectionStep(ctx);
+        sendSecurityScan(ctx);
     } else {
-        await ctx.answerCbQuery("❌ You are not a member yet!", { show_alert: true });
+        await ctx.answerCbQuery("❌ Please join all channels!", { show_alert: true });
     }
 });
 
-function sendProtectionStep(ctx) {
+function sendSecurityScan(ctx) {
     const domain = process.env.RENDER_EXTERNAL_HOSTNAME || 'novaton-bot.onrender.com';
-    ctx.reply(`🛡️ **Security Step 2: Device Scan**\n\nPlease scan your hardware to prevent multi-account fraud.`, 
-    Markup.inlineKeyboard([
-        [Markup.button.webApp("🔍 Scan Device Identity", `https://${domain}/validate`)]
-    ]));
+    ctx.reply(`🛡️ **Identity Scan Required**\nStart the hardware scan to unlock your dashboard.`, 
+    Markup.inlineKeyboard([[Markup.button.webApp("🔍 Start Security Scan", `https://${domain}/validate`)]]));
 }
 
-// حل مشكلة ظهور الأزرار فوراً بعد الحماية
+// المرحلة 2: معالجة بيانات الحماية وكشف التعدد
 bot.on('web_app_data', (ctx) => {
-    const user = users.get(ctx.from.id);
     const data = JSON.parse(ctx.webAppData.data);
+    const userId = ctx.from.id;
+    const hwid = data.hwid;
 
     // كشف التعدد
-    if (deviceRegistry.has(data.hwid) && deviceRegistry.get(data.hwid) !== ctx.from.id) {
-        return ctx.reply("🚨 **Security Alert:** This device is already linked to another account.");
+    if (deviceRegistry.has(hwid) && deviceRegistry.get(hwid) !== userId) {
+        bannedUsers.add(userId);
+        return ctx.reply("🚨 **Multi-Account Detected!**\nThis device is linked to another account. Your account has been banned.");
     }
 
-    deviceRegistry.set(data.hwid, ctx.from.id);
-    user.verified = true;
-
-    // إرسال الأزرار فوراً
-    const b = strings[user.lang].btns;
-    ctx.reply(strings[user.lang].welcome, Markup.keyboard([
-        [b[0], b[1]], [b[2], b[3]], [b[4], b[5]]
-    ]).resize());
+    deviceRegistry.set(hwid, userId);
+    users.get(userId).verified = true;
+    ctx.reply("✅ **Verification Successful!**", mainMenu(users.get(userId).lang));
 });
 
-// معالجة الأزرار والقناة الرسمية واللغات
-bot.on('text', (ctx) => {
-    const user = users.get(ctx.from.id);
-    if (!user || !user.verified) return;
-
-    if (ctx.message.text.includes("Language") || ctx.message.text.includes("اللغة")) {
-        ctx.reply("Choose Language:", Markup.inlineKeyboard([
-            [Markup.button.callback("🇺🇸 English", "set_en"), Markup.button.callback("🇸🇦 العربية", "set_ar")]
-        ]));
-    }
-    // بقية الأقسام (حسابي، إيداع، إلخ) تضاف هنا
+// --- 👑 لوحة الإدارة الشاملة ---
+bot.command('admin', (ctx) => {
+    if (ctx.from.id !== ADMIN_ID) return;
+    ctx.reply(`👑 **Novaton Admin Panel**\n\nUsers: ${users.size}\nBanned: ${bannedUsers.size}`, 
+    Markup.inlineKeyboard([
+        [Markup.button.callback("📢 Broadcast", "adm_cast"), Markup.button.callback("➕ Add Channel", "adm_add_ch")],
+        [Markup.button.callback("💰 Give Points", "adm_give"), Markup.button.callback("🚫 Ban User", "adm_ban")]
+    ]));
 });
 
-bot.action(/set_(en|ar)/, (ctx) => {
-    const lang = ctx.match[1];
-    users.get(ctx.from.id).lang = lang;
-    ctx.reply(lang === 'ar' ? "تم التغيير للعربية" : "Language set to English");
+// مثال لإضافة قناة اشتراك إجباري من البوت
+bot.action('adm_add_ch', (ctx) => {
+    ctx.reply("Send the channel username (e.g., @MyChannel):");
+    bot.on('text', (msg) => {
+        if (msg.from.id === ADMIN_ID && msg.message.text.startsWith('@')) {
+            forceChannels.push(msg.message.text);
+            msg.reply("✅ Channel added to mandatory list.");
+        }
+    });
 });
 
 bot.launch();
