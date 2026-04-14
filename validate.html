@@ -2,36 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Novaton Shield</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background: #0b111e; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; }
-        .circle { width: 140px; height: 140px; border: 4px solid rgba(255,255,255,0.05); border-top: 4px solid #0088cc; border-radius: 50%; animation: spin 1s infinite linear; transition: 0.5s; }
+        body { background-color: #0b111e; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: white; font-family: sans-serif; }
+        .loader-container { position: relative; width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+        .circle { position: absolute; width: 100%; height: 100%; border: 4px solid rgba(255, 255, 255, 0.05); border-top: 4px solid #0088cc; border-radius: 50%; animation: spin 1s linear infinite; transition: 0.5s; }
+        .device { width: 45px; height: 75px; border: 3px solid white; border-radius: 6px; position: relative; transition: 0.5s; }
+        .device::after { content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 8px; height: 8px; border: 2px solid white; border-radius: 50%; }
         .success .circle { border-color: #2ecc71; animation: none; }
-        .device { width: 40px; height: 70px; border: 3px solid white; border-radius: 6px; position: absolute; }
+        .success .device { border-color: #2ecc71; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-        .text { margin-top: 20px; font-weight: bold; }
+        .status-text { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
     </style>
 </head>
-<body id="b">
-    <div style="position:relative; display:flex; align-items:center; justify-content:center;">
+<body id="body">
+    <div class="loader-container">
         <div class="circle"></div>
         <div class="device"></div>
     </div>
-    <div class="text">Device Verification</div>
+    <div class="status-text">DEVICE VERIFICATION</div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        
         setTimeout(() => {
-            document.getElementById('b').classList.add('success');
+            document.getElementById('body').classList.add('success');
             setTimeout(() => {
-                // إرسال بصمة جهاز بسيطة لمنع التعدد
-                const hwid = btoa(navigator.userAgent).substring(0, 16);
-                tg.sendData(JSON.stringify({ hwid: hwid }));
+                // استخراج بصمة الجهاز (Fingerprint)
+                const fingerprint = btoa(navigator.userAgent + screen.width + navigator.hardwareConcurrency);
+                tg.sendData(JSON.stringify({ status: "VERIFIED", hwid: fingerprint }));
                 tg.close();
             }, 1000);
-        }, 3000);
+        }, 3500);
     </script>
 </body>
 </html>
